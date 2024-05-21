@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dice Roller</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Interactive Dice Roller</h1>
+        </header>
+        <main>
+            <div class="controls">
+                <form id="player-names-form">
+                    <label for="num_of_players">Number of Players:</label>
+                    <input type="number" id="num_of_players" value="4" min="1" max="10"><br>
+                    <div id="player-names-inputs"></div>
+                    <button type="submit">Set Players</button>
+                </form>
+                <p id="player-indicator">Current Player: </p>
+                <button onclick="startRolling()">Roll Dice</button>
+            </div>
+            <div id="dice-container"></div>
+            <div id="total-container"></div>
+            <div id="scores-container"></div>
+            <div id="winner-container"></div>
+            <button id="restart-button" style="display: none;" onclick="restartGame()">Restart Game</button>
+        </main>
+
+        <script>
+            let totalTurns = 0;
+            let maxTurns;
+            let playerNames = [];
+
+            document.getElementById('player-names-form').addEventListener('submit', async function(event) {
+                event.preventDefault();
+                const numOfPlayers = document.getElementById('num_of_players').value;
+                const nameInputs = document.getElementsByClassName('player-name-input');
+                playerNames = Array.from(nameInputs).map(input => input.value);
+
+                const response = await fetch('/set_players', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ names: playerNames })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    alert('Players set successfully!');
+                    document.getElementById('player-indicator').textContent = `Current Player: ${playerNames[0]}`;
+                }
+                maxTurns = numOfPlayers * 5;
+                document.getElementById('restart-button').style.display = 'none';
+            });
+
+            document.getElementById('num_of_players').addEventListener('change', function() {
+                const numOfPlayers = this.value;
+                const playerNamesInputsContainer = document.getElementById('player-names-inputs');
+                playerNamesInputsContainer.innerHTML = '';
+                for (let i = 0; i < numOfPlayers; i++) {
+                    const label = document.createElement('label');
+                    label.textContent = `Player ${i + 1}:`;
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'player-name-input';
+                    input.value = `Player ${i + 1}`;
+                    playerNamesInputsContainer.appendChild(label);
+                    playerNamesInputsContainer.appendChild(input);
+                    playerNamesInputsContainer.appendChild(document.createElement('br'));
+                }
+            });
+
+            async function rollDice() {
+                const response = await fetch('/roll_dice');
+                const data = await response.json();
+
+                const diceContainer = document.getElementById('dice-container');
+                const totalContainer = document.getElementById('total-container');
+                const playerIndicator = document.getElementById('player-indicator');
+                diceContainer.innerHTML = '';
+                totalContainer.innerHTML = '';
+
+                data.dice_faces.forEach(die => {
+                    const dieElement = document.createElement('pre');
+                    dieElement.textContent = die.join('\n');
+                    dieElement.classList.add('die');
+                    diceContainer.appendChild(dieElement);
+                });
+
+                totalContainer.textContent = `Total: ${data.total}`;
+                playerIndicator.textContent = `Current Player: ${data.player}`;
+                totalTurns = data.total_turns;
+
+                if (totalTurns >= maxTurns) {
+                    await displayScores();
+                    document.getElementById('restart-button').style.display = 'block';
+                }
+            }
+
+            function startRolling() {
+                let rollCount = 0;
+                const rollInterval = setInterval(() => {
+                    rollCount++;
+                    displayInterimRoll();
+                    if (rollCount >= 5) {
+                        clearInterval(rollInterval);
+                        rollDice();
+                    }
+                }, 200);
+            }
+
+            function displayInterimRoll() {
+                const diceContainer = document.getElementById('dice-container');
+                diceContainer.innerHTML = '';
+
+                for (let i = 0; i < 2; i++) {
+                    const dieElement = document.createElement('pre');
+                    dieElement.textContent = getRandomDiceFace();
+                    dieElement.classList.add('die', 'rolling');
+                    diceContainer.appendChild(dieElement);
+                }
+            }
+
+            function getRandomDiceFace() {
+                const faces = [
+                    "┌─────────┐\n│         │\n│    ●    │\n│         │\n└─────────┘",
+                    "┌─────────┐\n│  ●      │\n│         │\n│      ●  │\n└─────────┘",
+                    "┌─────────┐\n│  ●      │\n│    ●    │\n│      ●  │\n└─────────┘",
+                    "┌─────────┐\n│  ●   ●  │\n│         │\n│  ●   ●  │\n└─────────┘",
+                    "┌─────────┐\n│  ●   ●  │\n│    ●    │\n│  ●   ●  │\n└─────────┘",
+                    "┌─────────┐\n│  ●   ●  │\n│  ●   ●  │\n│  ●   ●  │\n└─────────┘"
+                ];
+                return faces[Math.floor(Math.random() * faces.length)];
+            }
+
+            async function displayScores() {
+                const response = await fetch('/get_scores');
+                const data = await response.json();
+                const scoresContainer = document.getElementById('scores-container');
+                const winnerContainer = document.getElementById('winner-container');
+
+                scoresContainer.innerHTML = '<h2>Scores:</h2>';
+                for (let [player, score] of Object.entries(data.scores)) {
+                    const scoreElement = document.createElement('p');
+                    scoreElement.textContent = `${player}: ${score}`;
+                    scoresContainer.appendChild(scoreElement);
+                }
+
+                winnerContainer.innerHTML = `<h2>Winner: ${data.winner}</h2>`;
+            }
+
+            async function restartGame() {
+                const response = await fetch('/restart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    document.getElementById('player-names-form').reset();
+                    document.getElementById('player-names-inputs').innerHTML = '';
+                    document.getElementById('player-indicator').textContent = 'Current Player: ';
+                    document.getElementById('dice-container').innerHTML = '';
+                    document.getElementById('total-container').innerHTML = '';
+                    document.getElementById('scores-container').innerHTML = '';
+                    document.getElementById('winner-container').innerHTML = '';
+                    document.getElementById('restart-button').style.display = 'none';
+                }
+            }
+
+            // Initialize player input fields
+            document.getElementById('num_of_players').dispatchEvent(new Event('change'));
+        </script>
+    </div>
+</body>
+</html>
